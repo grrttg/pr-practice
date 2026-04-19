@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  email     String   @unique
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  appointments Appointment[]
+  membership   Membership?
+  intakeForms  IntakeForm[]
+}
+
+model Provider {
+  id        String   @id @default(cuid())
+  name      String
+  specialty String?
+  createdAt DateTime @default(now())
+
+  appointments Appointment[]
+}
+
+model Appointment {
+  id         String   @id @default(cuid())
+  dateTime   DateTime
+  duration   Int      @default(60)
+  status     String   @default("scheduled")
+  clientId   String
+  providerId String
+  createdAt  DateTime @default(now())
+
+  client   Client   @relation(fields: [clientId], references: [id])
+  provider Provider @relation(fields: [providerId], references: [id])
+  sale     Sale?
+}
+
+model Membership {
+  id                        String   @id @default(cuid())
+  status                    String   @default("trial")
+  membership_credit_balance Int      @default(0)
+  clientId                  String   @unique
+  createdAt                 DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+model Sale {
+  id            String   @id @default(cuid())
+  amount        Int
+  description   String?
+  appointmentId String   @unique
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+model IntakeForm {
+  id             String   @id @default(cuid())
+  clientId       String
+  personalInfo   String?
+  medicalHistory String?
+  consent        String?
+  status         String   @default("incomplete")
+  createdAt      DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+}
