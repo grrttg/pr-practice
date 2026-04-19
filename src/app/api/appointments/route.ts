@@ -11,7 +11,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { clientId, providerId, dateTime, duration } = body;
+  const { clientId, providerId, dateTime, duration, bufferTime } = body;
 
   const appointment = await prisma.appointment.create({
     data: {
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       providerId,
       dateTime: new Date(dateTime),
       duration: duration || 60,
+      bufferTime: Math.min(60, Math.max(0, bufferTime || 0)),
     },
   });
 

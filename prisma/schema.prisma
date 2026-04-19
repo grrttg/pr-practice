@@ -34,6 +34,7 @@ model Appointment {
   id         String   @id @default(cuid())
   dateTime   DateTime
   duration   Int      @default(60)
+  bufferTime Int      @default(0)
   status     String   @default("scheduled")
   clientId   String
   providerId String

@@ -15,6 +15,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+function formatTime(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
 async function bookAppointment(formData: FormData) {
   "use server";
 
@@ -22,13 +30,43 @@ async function bookAppointment(formData: FormData) {
   const providerId = String(formData.get("providerId"));
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
+  const duration = 60;
+  const bufferTime = Math.min(60, Math.max(0, Number(formData.get("bufferTime")) || 0));
+
+  const requestedStart = new Date(`${date}T${time}:00`);
+  const requestedEnd = new Date(requestedStart.getTime() + (duration + bufferTime) * 60_000);
+
+  // Check for conflicts with the provider's existing appointments (including their buffers)
+  const existingAppointments = await prisma.appointment.findMany({
+    where: {
+      providerId,
+      status: { not: "cancelled" },
+    },
+  });
+
+  const hasConflict = existingAppointments.some((appt) => {
+    const existingStart = new Date(appt.dateTime);
+    const existingEnd = new Date(
+      existingStart.getTime() + (appt.duration + appt.bufferTime) * 60_000
+    );
+    return requestedStart < existingEnd && requestedEnd > existingStart;
+  });
+
+  if (hasConflict) {
+    // Redirect back — the page will re-render and the user can pick a different slot.
+    // In a real app this would be a toast or inline error; for now we revalidate
+    // so the user sees the current schedule and can adjust.
+    revalidatePath("/appointments");
+    return;
+  }
 
   await prisma.appointment.create({
     data: {
       clientId,
       providerId,
-      dateTime: new Date(`${date}T${time}:00`),
-      duration: 60,
+      dateTime: requestedStart,
+      duration,
+      bufferTime,
       status: "scheduled",
     },
   });
@@ -63,7 +101,7 @@ export default async function AppointmentsPage() {
           <CardTitle>Book a time slot</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={bookAppointment} className="grid gap-4 md:grid-cols-5">
+          <form action={bookAppointment} className="grid gap-4 md:grid-cols-6">
             <label className="space-y-2">
               <Label>Client</Label>
               <select name="clientId" className="h-9 rounded-md border px-2 text-sm">
@@ -98,6 +136,17 @@ export default async function AppointmentsPage() {
                 ))}
               </select>
             </label>
+            <label className="space-y-2">
+              <Label>Buffer (min)</Label>
+              <Input
+                name="bufferTime"
+                type="number"
+                defaultValue={0}
+                min={0}
+                max={60}
+                required
+              />
+            </label>
             <div className="flex items-end">
               <Button type="submit">Book</Button>
             </div>
@@ -120,16 +169,38 @@ export default async function AppointmentsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {appointments.map((appointment) => (
-                <TableRow key={appointment.id}>
-                  <TableCell>{formatDateTime(appointment.dateTime)}</TableCell>
-                  <TableCell>
-                    {appointment.client.firstName} {appointment.client.lastName}
-                  </TableCell>
-                  <TableCell>{appointment.provider.name}</TableCell>
-                  <TableCell>{appointment.status}</TableCell>
-                </TableRow>
-              ))}
+              {appointments.map((appointment) => {
+                const start = new Date(appointment.dateTime);
+                const end = new Date(
+                  start.getTime() + appointment.duration * 60_000
+                );
+                const bufferEnd =
+                  appointment.bufferTime > 0
+                    ? new Date(
+                        end.getTime() + appointment.bufferTime * 60_000
+                      )
+                    : null;
+
+                return (
+                  <TableRow key={appointment.id}>
+                    <TableCell>
+                      <span>{formatDateTime(appointment.dateTime)}</span>
+                      {bufferEnd && (
+                        <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          +{appointment.bufferTime}m buffer until{" "}
+                          {formatTime(bufferEnd)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {appointment.client.firstName}{" "}
+                      {appointment.client.lastName}
+                    </TableCell>
+                    <TableCell>{appointment.provider.name}</TableCell>
+                    <TableCell>{appointment.status}</TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
