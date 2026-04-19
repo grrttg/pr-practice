@@ -57,3 +57,5 @@ npm run db:reset
 
 This is not a production app. It is a starter for review practice, so the data,
 authentication, and payment behavior are deliberately fake and lightweight.
+
+Preview deployment check branch for D1.9.
