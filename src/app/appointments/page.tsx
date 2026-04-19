@@ -1,11 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { PROVIDERS, TIME_SLOTS } from "@/lib/providers";
 import { formatDateTime } from "@/lib/format";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -14,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AppointmentBookingForm } from "./appointment-booking-form";
 
 async function bookAppointment(formData: FormData) {
   "use server";
@@ -22,12 +19,39 @@ async function bookAppointment(formData: FormData) {
   const providerId = String(formData.get("providerId"));
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
+  const requestedStart = new Date(`${date}T${time}:00`);
+  const requestedEnd = new Date(requestedStart.getTime() + 60 * 60_000);
+
+  const existingAppointments = await prisma.appointment.findMany({
+    where: {
+      providerId,
+      status: { not: "cancelled" },
+    },
+  });
+
+  const hasConflict = existingAppointments.some((appointment) => {
+    const existingStart = new Date(appointment.dateTime);
+    if (existingStart.toISOString().slice(0, 10) !== date) {
+      return false;
+    }
+
+    const existingEnd = new Date(
+      existingStart.getTime() + appointment.duration * 60_000
+    );
+
+    return requestedStart < existingEnd && requestedEnd > existingStart;
+  });
+
+  if (hasConflict) {
+    revalidatePath("/appointments");
+    return;
+  }
 
   await prisma.appointment.create({
     data: {
       clientId,
       providerId,
-      dateTime: new Date(`${date}T${time}:00`),
+      dateTime: requestedStart,
       duration: 60,
       status: "scheduled",
     },
@@ -38,7 +62,7 @@ async function bookAppointment(formData: FormData) {
 }
 
 export default async function AppointmentsPage() {
-  const [clients, appointments] = await Promise.all([
+  const [clients, appointments, bookingAppointments] = await Promise.all([
     prisma.client.findMany({
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
@@ -46,6 +70,11 @@ export default async function AppointmentsPage() {
       include: { client: true, provider: true },
       orderBy: { dateTime: "asc" },
       take: 12,
+    }),
+    prisma.appointment.findMany({
+      include: { client: true },
+      where: { status: { not: "cancelled" } },
+      orderBy: { dateTime: "asc" },
     }),
   ]);
 
@@ -63,45 +92,20 @@ export default async function AppointmentsPage() {
           <CardTitle>Book a time slot</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={bookAppointment} className="grid gap-4 md:grid-cols-5">
-            <label className="space-y-2">
-              <Label>Client</Label>
-              <select name="clientId" className="h-9 rounded-md border px-2 text-sm">
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.firstName} {client.lastName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-2">
-              <Label>Provider</Label>
-              <select name="providerId" className="h-9 rounded-md border px-2 text-sm">
-                {PROVIDERS.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-2">
-              <Label>Date</Label>
-              <Input name="date" type="date" required />
-            </label>
-            <label className="space-y-2">
-              <Label>Time</Label>
-              <select name="time" className="h-9 rounded-md border px-2 text-sm">
-                {TIME_SLOTS.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {slot}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="flex items-end">
-              <Button type="submit">Book</Button>
-            </div>
-          </form>
+          <AppointmentBookingForm
+            clients={clients.map((client) => ({
+              id: client.id,
+              fullName: `${client.firstName} ${client.lastName}`,
+            }))}
+            appointments={bookingAppointments.map((appointment) => ({
+              id: appointment.id,
+              providerId: appointment.providerId,
+              dateTime: appointment.dateTime.toISOString(),
+              duration: appointment.duration,
+              clientName: `${appointment.client.firstName} ${appointment.client.lastName}`,
+            }))}
+            action={bookAppointment}
+          />
         </CardContent>
       </Card>
 
