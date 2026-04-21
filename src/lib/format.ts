@@ -11,3 +11,10 @@ export function formatDateTime(date: Date) {
     timeStyle: "short",
   }).format(date);
 }
+
+export function formatShortDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
